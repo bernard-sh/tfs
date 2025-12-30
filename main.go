@@ -498,37 +498,80 @@ func (m model) View() string {
 
 func main() {
 	lipgloss.SetColorProfile(termenv.TrueColor)
-// Paste your JSON string here
-	// 1. Check Arguments
+
+	// 1. Parse Arguments
 	if len(os.Args) < 2 {
-		log.Fatal("Usage: go run main.go <path-to-tfplan-file>")
-	}
-	planPath := os.Args[1]
-
-	// 2. Validate file exists
-	if _, err := os.Stat(planPath); os.IsNotExist(err) {
-		log.Fatalf("File does not exist: %s", planPath)
+		fmt.Println("Usage: tfs <plan.binary> OR tfs web <plan.binary>")
+		os.Exit(1)
 	}
 
-	fmt.Println("🔍 Running 'terraform show -json'...")
+	mode := "tui"
+	filename := ""
 
-	// 3. Run Terraform Command
-	// We execute "terraform show -json <planfile>" and capture stdout
-	cmd := exec.Command("terraform", "show", "-json", planPath)
-	
-	// Optional: Set stderr to os.Stderr so you see Terraform errors if it fails
-	cmd.Stderr = os.Stderr
+	if os.Args[1] == "web" {
+		mode = "web"
+		if len(os.Args) < 3 {
+			fmt.Println("Usage: tfs web <plan.binary>")
+			os.Exit(1)
+		}
+		filename = os.Args[2]
+	} else {
+		filename = os.Args[1]
+	}
+
+	// 2. Validate file existence
+	if _, err := os.Stat(filename); os.IsNotExist(err) {
+		log.Fatalf("File does not exist: %s", filename)
+	}
+
+	// 3. Get JSON Content (Run terraform show -json)
+	// We assume input is a binary plan file as per user usage history.
+	cmd := exec.Command("terraform", "show", "-json", filename)
+	// cmd.Stderr = os.Stderr // Optional: uncomment for debug
 	
 	output, err := cmd.Output()
 	if err != nil {
-		log.Fatalf("Failed to run terraform command: %v", err)
+		// Fallback: If terraform command fails, maybe the file IS already JSON?
+		// Try reading it directly.
+		raw, readErr := os.ReadFile(filename)
+		if readErr != nil {
+			log.Fatalf("Failed to run terraform output: %v, and failed to read file: %v", err, readErr)
+		}
+		output = raw
+	}
+	
+	jsonContent := string(output)
+
+	// 4. Branch Validation
+	// If mode is web
+	if mode == "web" {
+		var plan TfPlan
+		dec := json.NewDecoder(strings.NewReader(jsonContent))
+		dec.UseNumber()
+		err := dec.Decode(&plan)
+		if err != nil {
+			log.Fatalf("Error parsing plan JSON: %v. Output start: %s", err, jsonContent[:min(100, len(jsonContent))])
+		}
+		
+		err = GenerateHTML(plan, "tfs.html")
+		if err != nil {
+			log.Fatalf("Error generating HTML: %v", err)
+		}
+		fmt.Println("✅ Successfully generated tfs.html")
+		return
 	}
 
-	fmt.Println("✅ Terraform JSON generated. Parsing...")
-
-	// 4. Parse JSON
-	p := tea.NewProgram(initialModel(string(output)), tea.WithAltScreen())
+	// TUI Mode
+	p := tea.NewProgram(initialModel(jsonContent), tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
 		fmt.Printf("Alas, there's been an error: %v", err)
+		os.Exit(1)
 	}
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
