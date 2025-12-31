@@ -1,4 +1,4 @@
-package main
+package web
 
 import (
 	"encoding/json"
@@ -6,7 +6,15 @@ import (
 	"os"
 )
 
-func GenerateHTML(plan TfPlan, outputPath string) error {
+func GenerateHTML(plan interface{}, outputPath string) error {
+	// Plan is passed as interface{} to avoid circular dependency if TfPlan is in TUI
+	// But ideally we share models. For now, assume it's valid struct.
+    // Wait, main.go defines TfPlan. We should move models to internal/models or similar.
+    // Or defining structs here again?
+    // Let's create `internal/models/plan.go` ideally.
+    // For this step I'll just accept interface{} and marshal it so I don't break things 
+    // before seeing where TfPlan goes.
+    
 	planJSON, err := json.Marshal(plan)
 	if err != nil {
 		return err
